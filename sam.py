@@ -1,7 +1,7 @@
 import torch
+from torch.optim.optimizer import Optimizer
 
-
-class SAM(torch.optim.Optimizer):
+class SAM(Optimizer):
     def __init__(self, params, base_optimizer, rho=0.05, adaptive=False, **kwargs):
         assert rho >= 0.0, f"Invalid rho, should be non-negative: {rho}"
 
@@ -18,11 +18,34 @@ class SAM(torch.optim.Optimizer):
         for group in self.param_groups:
             scale = group["rho"] / (grad_norm + 1e-12)
 
-            for p in group["params"]:
-                if p.grad is None: continue
-                self.state[p]["old_p"] = p.data.clone()
-                e_w = (torch.pow(p, 2) if group["adaptive"] else 1.0) * p.grad * scale.to(p)
-                p.add_(e_w)  # climb to the local maximum "w + e(w)"
+            # Imitate Adam._init_group() but simpler
+            params_with_grad = []
+            grads = []
+            for p in group['params']:
+                if p.grad is not None:
+                    params_with_grad.append(p)
+                    grads.append(p.grad)
+                    self.state[p]["p_old"] = p.data.clone()
+
+            grouped_tensors = torch.utils._foreach_utils._group_tensors_by_device_and_dtype(
+                [params_with_grad, grads]
+            )
+
+            # torch signature is ((device_params, device_grads), _).
+            for (device_params, device_grads) in grouped_tensors.values():
+                # Handle complex parameters
+                device_grads = [torch.view_as_real(x) if torch.is_complex(x) else x for x in device_grads]
+                device_params = [torch.view_as_real(x) if torch.is_complex(x) else x for x in device_params]
+                device_scale = scale.clone().to(device_params[0])
+                if group["adaptive"]:
+                    e_w = torch._foreach_mul(device_params, device_params)
+                else:
+                    e_w = [torch.ones_like(p.grad) for p in device_params]
+
+                torch._foreach_mul_(e_w, device_scale)
+                torch._foreach_add_(device_params, e_w)
+                
+                del e_w, device_grads, device_scale
 
         if zero_grad: self.zero_grad()
 
@@ -31,7 +54,7 @@ class SAM(torch.optim.Optimizer):
         for group in self.param_groups:
             for p in group["params"]:
                 if p.grad is None: continue
-                p.data = self.state[p]["old_p"]  # get back to "w" from "w + e(w)"
+                p.data = self.state[p]["p_old"]  # get back to "w" from "w + e(w)"
 
         self.base_optimizer.step()  # do the actual "sharpness-aware" update
 

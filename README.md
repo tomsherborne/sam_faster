@@ -1,3 +1,30 @@
+# PyTorch SAM (but faster)!
+### Tom Sherborne
+### September 2023
+
+This is a fork of [@davda54 implementation of Sharpness-Aware Minimization](https://github.com/davda54/sam) for PyTorch.
+The original implementation has 1.5K stars on Github and is the #1 result if you search for "sharpness aware minimization pytorch". 
+
+The issue? **This implementation is extremely slow!**
+
+The usage of a `for p in group['params']` loop creates a sequential processing bottleneck. The purported
+slowdown from using SAM is 2x Adam as SAM needs an extra forward and backward pass. Practically the difference
+in runtimes between _highly optimized_ Adam and _unoptimized_ SAM is much larger. My estimates on 
+GPT-2-small language modeling is SAM is >4x slower than Adam on a single A100 with 16k batch size using `bf16`.
+
+My minimal solution that I'm sharing is to **rip out the `for` loop and use Torch 2.0 Tensorized operations**.
+This is inspired by the  `_multi_tensor_adam` function from [`torch.optim.adam.py`](https://github.com/pytorch/pytorch/blob/main/torch/optim/adam.py). This uses the new `foreach` distributed functions to remove the nasty `for` loop.
+
+This update has increased the runtime of SAM to approximately **1.6x** the Adam runtime which is _over twice as fast_.
+
+To use this, you will need `torch>=2.0.0`.
+
+Comments / PRs are welcome!
+
+--------------
+Below is the original `README.md` from @davda54 preserved for reference
+--------------
+
 <h1 align="center"><b>(Adaptive) SAM Optimizer</b></h1>
 <h3 align="center"><b>Sharpness-Aware Minimization for Efficiently Improving Generalization</b></h3>
 <p align="center">
