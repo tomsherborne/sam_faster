@@ -21,6 +21,7 @@ To use this, you will need `torch>=2.0.0`.
 
 Comments / PRs are welcome!
 
+## Note: this currently does not work with Torch >2.1.1 due to some internal changes. I need to address this and plan to investigate early 2024. Send me an email if you need/can offer help. Thanks!
 --------------
 Below is the original `README.md` from @davda54 preserved for reference
 --------------
